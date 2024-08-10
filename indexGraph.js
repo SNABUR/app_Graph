@@ -5,6 +5,7 @@ const express = require('express');
 require("dotenv").config();
 const chainIds = require('./chain_names.json');
 const app = express();
+const cors = require('cors'); // Esta línea fue agregada
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const port = process.env.PORT_GRAPH || 3003;
