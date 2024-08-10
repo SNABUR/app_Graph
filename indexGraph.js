@@ -34,7 +34,6 @@ wss.on('connection', (ws) => {
   ws.on('message', async (message) => {
     //console.log('Mensaje recibido:', message);
     const { tableName, chainNet } = JSON.parse(message);
-    console.log(tableName, chainNet,"tablename and chainnet");
     if (!tableName || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
       ws.send(JSON.stringify({ error: 'Nombre de tabla inválido' }));
       return;
