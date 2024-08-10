@@ -14,17 +14,6 @@ app.use(cors({
   origin: 'https://goldengcoin.github.io', // Restringe los orígenes permitidos
 }));
 
-/*
-// Crea una instancia del cliente PostgreSQL con opciones de SSL/TLS
-const dbConnection = new Client({
-  user: 'postgres',
-  host: 'localhost',
-  database: 'DegenSQL',
-  password: '1M3M323_3-152G0553XD##',
-  port: 5432,
-});
-*/
-
 const dbConnection = new Client({
   user: process.env.USER_POSTGRES,
   host: process.env.HOST_DB_POSTGRES,
@@ -45,7 +34,7 @@ wss.on('connection', (ws) => {
   ws.on('message', async (message) => {
     //console.log('Mensaje recibido:', message);
     const { tableName, chainNet } = JSON.parse(message);
-
+    console.log(tableName, chainNet,"tablename and chainnet");
     if (!tableName || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
       ws.send(JSON.stringify({ error: 'Nombre de tabla inválido' }));
       return;
