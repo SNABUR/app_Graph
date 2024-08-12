@@ -31,6 +31,35 @@ dbConnection.connect()
   .then(() => console.log('Conectado a la base de datos PostgreSQL'))
   .catch(err => console.error('Error al conectar a la base de datos PostgreSQL', err));
 
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const getDbDataDePools = async () => {
+  try {
+    const query = `
+      SELECT token_contract, pool_pair
+      FROM data_pools_teth
+    `;
+    
+    const result = await dbConnection.query(query);
+
+    // Aquí puedes trabajar con los resultados
+    console.log("Datos de la tabla data_pools_teth:", result.rows);
+
+    // Iterar sobre cada fila y llamar a listenSwapEvents
+    for (const row of result.rows) {
+      const { token_contract, pool_pair } = row;
+      await listenSwapEvents(pool_pair, token_contract); // Pasar pool_pair y token_contract
+      // Esperar 1 segundo antes de continuar con la siguiente iteración
+      await delay(1000);
+
+    }
+  } catch (error) {
+    console.error('Error al obtener los datos de data_pools_teth:', error);
+  } finally {
+    await dbConnection.end(); // Cierra la conexión a la base de datos
+  }
+};
+
 const etherconnect = async (contract_address, contractABI) => {
   const provider = new ethers.WebSocketProvider(providerUrl);
   const transactionsContract = new ethers.Contract(contract_address, contractABI, provider);
@@ -99,7 +128,6 @@ const listenSwapEvents = async (poolContract, token_contract) => {
   });
 }
 
-
 const checkAddingLiquidity = async (sponsor, token_contract) => {
 
   const transactionsContract = await etherconnect(poolfactory, contractABI_POOL_FACTORY);
@@ -111,7 +139,7 @@ const checkAddingLiquidity = async (sponsor, token_contract) => {
   try {
     // Verificar si el pool_pair ya existe en la tabla
     const checkQuery = `
-      SELECT 1 FROM data_pools WHERE token_contract = $1 LIMIT 1
+      SELECT 1 FROM data_pools_teth WHERE token_contract = $1 LIMIT 1
     `;
 
     const checkResult = await dbConnection.query(checkQuery, [tablepairAddress]);
@@ -119,7 +147,7 @@ const checkAddingLiquidity = async (sponsor, token_contract) => {
     if (checkResult.rows.length === 0) {
       // Si no existe, insertar la nueva fila
       const insertQuery = `
-        INSERT INTO data_pools (sponsor, token_contract, pool_pair)
+        INSERT INTO data_pools_teth (sponsor, token_contract, pool_pair)
         VALUES ($1, $2, $3)
       `;
 
@@ -164,6 +192,7 @@ const checkAddingLiquidity = async (sponsor, token_contract) => {
   }
 };
 
+//listen to the memefactory if a pool is created
 const listenMemefactory = async (contract_memefactory, contractABI) => {
   const transactionsContract_2 = await etherconnect(contract_memefactory, contractABI);
   console.log("memefactory listener online")
@@ -175,8 +204,9 @@ const listenMemefactory = async (contract_memefactory, contractABI) => {
   });
 }
 
-listenMemefactory(contract_memefactory, contractABI_MEMEFACTORY);
+getDbDataDePools();
 
+listenMemefactory(contract_memefactory, contractABI_MEMEFACTORY);
 
 server.listen(port, () => {
   console.log(`Servidor iniciado en el puerto ${port}`);
