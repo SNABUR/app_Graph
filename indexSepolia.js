@@ -19,7 +19,6 @@ const contract_memefactory= process.env.CONTRACT_MEME_FACTORY_SEPOLIA;
 const contract_WETH = process.env.CONTRACT_WETH_SEPOLIA;
 const ethPriceInUSD = 2500;
 
-/*
 const dbConnection = new Client({
   user: process.env.USER_POSTGRES,
   host: process.env.HOST_DB_POSTGRES,
@@ -27,17 +26,6 @@ const dbConnection = new Client({
   password: process.env.PASSWORD_DB_POSTGRES,
   port: process.env.PORT_DB_POSTGRES,
 });
-*/
-
-// Crea una instancia del cliente PostgreSQL con opciones de SSL/TLS
-const dbConnection = new Client({
-  user: 'postgres',
-  host: 'localhost',
-  database: 'DegenSQL',
-  password: '1M3M323_3-152G0553XD##',
-  port: 5432,
-});
-
 
 dbConnection.connect()
   .then(() => console.log('Conectado a la base de datos PostgreSQL'))
@@ -50,7 +38,7 @@ const etherconnect = async (contract_address, contractABI) => {
 }
 
 const getReserves = async (pairpoolContract) => {
-  const transactionsContract = etherconnect(pairpoolContract, contractABI_UNISWAP_PAIR);
+  const transactionsContract = await etherconnect(pairpoolContract, contractABI_UNISWAP_PAIR);
 
   //obtenemos las reservas
   const [reserve0, reserve1, blockTimestampLast] = await transactionsContract.getReserves();
@@ -60,7 +48,7 @@ const getReserves = async (pairpoolContract) => {
   return [reserve0, reserve1]; // Devuelve un array con las reservas
 }
 
-const reservspooldatasave = async (pairpoolContract) => {
+const reservspooldatasave = async (pairpoolContract, token_contract) => {
   try {
     const [reserve0, reserve1] = await getReserves(pairpoolContract);
     // Convertir valores a números (ajustar la precisión según sea necesario)
@@ -68,15 +56,24 @@ const reservspooldatasave = async (pairpoolContract) => {
     const reserve1InTokens = parseFloat(ethers.formatUnits(reserve1, 18)); // Ajusta el número de decimales según el token
 
     // Calcular el valor de las reservas en USD
+    let tokenPriceInUSD;
 
-    const reserve0InUSD = reserve0InTokens * ethPriceInUSD;
-    const tokenPriceInUSD = reserve0InUSD / reserve1InTokens;
+    // Si el primer token es WETH, queremos que sea el denominador
+    if (token_contract.toLowerCase() === contract_WETH.toLowerCase()) {
+      const reserve0InUSD = reserve0InTokens * ethPriceInUSD;
+      tokenPriceInUSD = reserve0InUSD / reserve1InTokens;
+    } else {
+      // Si el segundo token es WETH, invertimos la relación
+      const reserve1InUSD = reserve1InTokens * ethPriceInUSD;
+      tokenPriceInUSD = reserve1InUSD / reserve0InTokens;
+    }
+
 
     const nowTimestamp = Date.now(); // Obtiene el timestamp en milisegundos
 
     // Construir la consulta SQL dinámica
     const query = `
-      INSERT INTO "${pairpoolContract.silce(1)}" (open, high, low, close, timestamp)
+      INSERT INTO teth_${token_contract.slice(1)} (open, high, low, close, timestamp)
       VALUES ($1, $2, $3, $4, $5)
     `;
 
@@ -88,7 +85,7 @@ const reservspooldatasave = async (pairpoolContract) => {
   }
 };
 
-const listenSwapEvents = async (poolContract) => {
+const listenSwapEvents = async (poolContract, token_contract) => {
 
   const transactionsContract = await etherconnect(poolContract, contractABI_UNISWAP_PAIR);
 
@@ -98,7 +95,7 @@ const listenSwapEvents = async (poolContract) => {
     console.log('Evento Swap detectado:', {
       address, amount0In, amount1In, amount0Out, amount1Out, address2
     });
-    await reservspooldatasave(poolContract);
+    await reservspooldatasave(poolContract, token_contract);
   });
 }
 
@@ -109,15 +106,15 @@ const checkAddingLiquidity = async (sponsor, token_contract) => {
 
   const pre_pairAddress = await transactionsContract.getPair(token_contract, contract_WETH);
 
-  const pairAddress = "TETH_"+pre_pairAddress.slice(1);
+  const tablepairAddress = "teth_" + token_contract.slice(1).toLowerCase();
 
   try {
     // Verificar si el pool_pair ya existe en la tabla
     const checkQuery = `
-      SELECT 1 FROM data_pools WHERE pool_pair = $1 LIMIT 1
+      SELECT 1 FROM data_pools WHERE token_contract = $1 LIMIT 1
     `;
 
-    const checkResult = await dbConnection.query(checkQuery, [pairAddress]);
+    const checkResult = await dbConnection.query(checkQuery, [tablepairAddress]);
 
     if (checkResult.rows.length === 0) {
       // Si no existe, insertar la nueva fila
@@ -126,12 +123,12 @@ const checkAddingLiquidity = async (sponsor, token_contract) => {
         VALUES ($1, $2, $3)
       `;
 
-      await dbConnection.query(insertQuery, [sponsor, token_contract, pairAddress]);
+      await dbConnection.query(insertQuery, [sponsor, token_contract, pre_pairAddress]);
       console.log("Fila añadida");
 
       // Crear una nueva tabla con el nombre del token_contract
       const createTableQuery = `
-        CREATE TABLE TETH_${pairAddress} (
+        CREATE TABLE ${tablepairAddress} (
           open DOUBLE PRECISION,
           high DOUBLE PRECISION,
           low DOUBLE PRECISION,
@@ -141,11 +138,23 @@ const checkAddingLiquidity = async (sponsor, token_contract) => {
       `;
 
       await dbConnection.query(createTableQuery);
-      console.log(`Tabla ${pairAddress} creada`);
+      console.log(`Tabla ${tablepairAddress} creada`);
+
+      // Obtener el timestamp actual
+      const currentTimestamp = Date.now().toString();
+
+      // Insertar una fila con valores de 0 y el timestamp actual
+      const insertInitialRowQuery = `
+        INSERT INTO ${tablepairAddress} (open, high, low, close, timestamp)
+        VALUES (0, 0, 0, 0, $1)
+      `;
+
+      await dbConnection.query(insertInitialRowQuery, [currentTimestamp]);
+      console.log(`Fila inicial insertada en la tabla ${tablepairAddress}`);
 
       //escuchar eventos del swap
 
-      listenSwapEvents(pairAddress, poolfactory);
+      listenSwapEvents(pre_pairAddress, token_contract);
 
     } else {
       console.log("El token_contract ya existe, no se añadió una nueva fila ni se creó una nueva tabla");
