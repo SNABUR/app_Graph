@@ -12,6 +12,7 @@ const port = process.env.PORT_GRAPH || 3003;
 
 app.use(cors({
   origin: 'https://goldengcoin.github.io', // Restringe los orígenes permitidos
+  //origin: 'http://localhost:5173', // Restringe los orígenes permitidos
 }));
 
 const dbConnection = new Client({
@@ -28,12 +29,23 @@ dbConnection.connect()
 
 
 // Configuración del WebSocket para el frontend
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const allowedOrigins = ['https://goldengcoin.github.io'];
+//  const allowedOrigins = ['http://localhost:5173'];
+
+  const origin = req.headers.origin;
+  if (!allowedOrigins.includes(origin)) {
+    ws.terminate(); // Termina la conexión si el origen no está permitido
+    console.log('Conexión rechazada desde origen no permitido:', origin);
+    return;
+  }
+  
   console.log('Nuevo cliente conectado');
 
   ws.on('message', async (message) => {
     //console.log('Mensaje recibido:', message);
     const { tableName, chainNet } = JSON.parse(message);
+
     if (!tableName || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
       ws.send(JSON.stringify({ error: 'Nombre de tabla inválido' }));
       return;
@@ -47,7 +59,7 @@ wss.on('connection', (ws) => {
     }
 
     // Formar el nombre completo de la tabla
-    const fullTableName = `${chainAbbr}_${tableName}`;
+    const fullTableName = `${chainAbbr}_${tableName}`.toLowerCase();
     console.log(fullTableName,"nombre tabla busqueda")
 
     try {
