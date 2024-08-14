@@ -55,8 +55,6 @@ const getDbDataDePools = async () => {
     }
   } catch (error) {
     console.error('Error al obtener los datos de data_pools_teth:', error);
-  } finally {
-    await dbConnection.end(); // Cierra la conexión a la base de datos
   }
 };
 
