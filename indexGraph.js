@@ -1,4 +1,4 @@
-const { Client } = require('pg');
+const { Pool } = require('pg');
 const WebSocket = require('ws');
 const http = require('http');
 const express = require('express');
@@ -15,7 +15,17 @@ app.use(cors({
   //origin: 'http://localhost:5173', // Restringe los orígenes permitidos
 }));
 
-const dbConnection = new Client({
+// Crea una instancia del cliente PostgreSQL con opciones de SSL/TLS
+/*const pool  = new Pool({
+  user: 'postgres',
+  host: 'localhost',
+  database: 'DegenSQL',
+  password: '1M3M323_3-152G0553XD##',
+  port: 5432,
+});*/
+
+
+const pool  = new Pool({
   user: process.env.USER_POSTGRES,
   host: process.env.HOST_DB_POSTGRES,
   database: process.env.DATABASE_DB_POSTGRES,
@@ -23,80 +33,103 @@ const dbConnection = new Client({
   port: process.env.PORT_DB_POSTGRES,
 });
 
-dbConnection.connect()
-  .then(() => console.log('Conectado a la base de datos PostgreSQL'))
+
+pool.connect()
+  .then(client => {
+    console.log('Conectado a la base de datos PostgreSQL');
+    client.release(); // Liberamos la conexión inicial
+  })
   .catch(err => console.error('Error al conectar a la base de datos PostgreSQL', err));
 
+let lastData = null;
 
-// Configuración del WebSocket para el frontend
+const fetchData = async (tableName, chainNet) => {
+  if (!tableName || !chainNet) return null;
+
+  const chainAbbr = chainIds[chainNet];
+  const fullTableName = `${chainAbbr}_${tableName}`.toLowerCase();
+
+  try {
+    const query = `SELECT * FROM "${fullTableName}" ORDER BY timestamp DESC LIMIT 100`;
+    const result = await pool.query(query); // Usamos el pool para hacer la consulta
+
+    const transformedData = result.rows.map(row => {
+      const timestamp = Number(row.timestamp);
+      return [
+        timestamp,
+        0,
+        row.high,
+        row.low,
+        row.close,
+        row.volume || "0",
+        timestamp + 60000,
+      ];
+    }).sort((a, b) => a[0] - b[0]);
+
+    for (let i = 1; i < transformedData.length; i++) {
+      transformedData[i][1] = transformedData[i - 1][4];
+    }
+
+    return transformedData;
+  } catch (err) {
+    console.error(err.stack);
+    return null;
+  }
+};
+
 wss.on('connection', (ws, req) => {
-  const allowedOrigins = ['https://goldengcoin.github.io'];
-//  const allowedOrigins = ['http://localhost:5173'];
-
+  const allowedOrigins = ['http://localhost:5173'];
   const origin = req.headers.origin;
   if (!allowedOrigins.includes(origin)) {
-    ws.terminate(); // Termina la conexión si el origen no está permitido
+    ws.terminate();
     console.log('Conexión rechazada desde origen no permitido:', origin);
     return;
   }
-  
+
   console.log('Nuevo cliente conectado');
+  let tableName, chainNet;
 
   ws.on('message', async (message) => {
-    //console.log('Mensaje recibido:', message);
-    const { tableName, chainNet } = JSON.parse(message);
+    const { tableName: newTableName, chainNet: newChainNet } = JSON.parse(message);
 
-    if (!tableName || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
+    if (!newTableName || !/^[a-zA-Z0-9_]+$/.test(newTableName)) {
       ws.send(JSON.stringify({ error: 'Nombre de tabla inválido' }));
       return;
     }
 
-    // Obtener la abreviatura de la red desde el JSON
-    const chainAbbr = chainIds[chainNet];
+    const chainAbbr = chainIds[newChainNet];
     if (!chainAbbr) {
       ws.send(JSON.stringify({ error: 'Red inválida' }));
       return;
     }
 
-    // Formar el nombre completo de la tabla
-    const fullTableName = `${chainAbbr}_${tableName}`.toLowerCase();
-    console.log(fullTableName,"nombre tabla busqueda")
+    tableName = newTableName;
+    chainNet = newChainNet;
 
-    try {
-      const query = `SELECT * FROM "${fullTableName}" ORDER BY timestamp DESC LIMIT 100`;
-      const result = await dbConnection.query(query);
-
-      const transformedData = result.rows.map(row => {
-        const timestamp = Number(row.timestamp);
-        return [
-          timestamp,
-          0, // placeholder para open
-          row.high,
-          row.low,
-          row.close,
-          row.volume || "0",
-          timestamp + 60000,
-        ];
-      }).sort((a, b) => a[0] - b[0]);
-
-    // Ajustar el valor de 'open' de cada fila para que sea el 'close' de la fila anterior
-    for (let i = 1; i < transformedData.length; i++) {
-      transformedData[i][1] = transformedData[i - 1][4];
-    }
-
-      ws.send(JSON.stringify(transformedData));
-    } catch (err) {
-      console.error(err.stack);
-      ws.send(JSON.stringify({ error: 'Error en la consulta a la base de datos' }));
+    // Fetch initial data
+    const initialData = await fetchData(tableName, chainNet);
+    if (initialData) {
+      lastData = initialData;
+      ws.send(JSON.stringify(initialData));
     }
   });
 
+  const sendData = async () => {
+    const data = await fetchData(tableName, chainNet);
+
+    if (data && JSON.stringify(data) !== JSON.stringify(lastData)) {
+      lastData = data;
+      ws.send(JSON.stringify(data));
+    }
+  };
+
+  const interval = setInterval(sendData, 60000);
 
   ws.on('close', () => {
     console.log('Cliente desconectado');
+    clearInterval(interval);
   });
 });
-
 
 server.listen(port, () => {
   console.log(`Servidor iniciado en el puerto ${port}`);
