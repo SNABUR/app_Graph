@@ -78,7 +78,8 @@ const fetchData = async (tableName, chainNet) => {
 };
 
 wss.on('connection', (ws, req) => {
-  const allowedOrigins = ['http://localhost:5173'];
+  //const allowedOrigins = ['http://localhost:5173'];
+  const allowedOrigins = ['https://goldengcoin.github.io'];
   const origin = req.headers.origin;
   if (!allowedOrigins.includes(origin)) {
     ws.terminate();
