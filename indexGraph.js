@@ -11,7 +11,7 @@ const wss = new WebSocket.Server({ server });
 const port = process.env.PORT_GRAPH || 3003;
 
 app.use(cors({
-  origin: 'https://goldengcoin.github.io', // Restringe los orígenes permitidos
+  origin: 'https://ggeese.github.io', // Restringe los orígenes permitidos
   //origin: 'http://localhost:5173', // Restringe los orígenes permitidos
 }));
 
