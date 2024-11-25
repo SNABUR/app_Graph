@@ -11,7 +11,7 @@ const wss = new WebSocket.Server({ server });
 const port = process.env.PORT_GRAPH || 3003;
 
 app.use(cors({
-  origin: ['https://ggeese.github.io', 'https://ggeese.fun'] // Restringe los orígenes permitidos
+  origin: ['https://ggeese.github.io', 'https://goosey.fun'] // Restringe los orígenes permitidos
   //origin: 'http://localhost:5173', // Restringe los orígenes permitidos
 }));
 
